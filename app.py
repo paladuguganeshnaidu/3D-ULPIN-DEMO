@@ -340,6 +340,11 @@ def view3d(bid):
     if not b: return 'Not found',404
     return render_template('viewer3d.html', building=b)
 
+@app.get('/3d')
+def city3d():
+    conn = db(); rows = conn.execute('SELECT * FROM buildings ORDER BY id').fetchall(); conn.close()
+    return render_template('city3d.html', buildings=[building_json(row) for row in rows], center=DEMO_CENTER)
+
 @app.post('/api/ai/analyze')
 def ai_analyze():
     if not OPENROUTER_API_KEY:
