@@ -335,6 +335,40 @@ def private_building_record(bid):
     if not b: return jsonify({'error':'not found'}),404
     return jsonify({'building': building_json(b), 'units': [unit_json(unit, include_sensitive=True) for unit in units], 'sensitive': True})
 
+@app.post('/api/buildings/<int:bid>/floor-record')
+@login_required()
+def update_floor_record(bid):
+    payload = request.get_json(silent=True) or {}
+    floor_no = payload.get('floor_no')
+    unit_code = (payload.get('unit_code') or '').strip()
+    try:
+        floor_no = int(floor_no)
+        latitude = float(payload['latitude'])
+        longitude = float(payload['longitude'])
+        width = float(payload['width'])
+        depth = float(payload['depth'])
+    except (KeyError, TypeError, ValueError):
+        return jsonify({'ok': False, 'error': 'Floor, coordinates, width, and depth are required.'}), 400
+    if not -90 <= latitude <= 90 or not -180 <= longitude <= 180 or width <= 0 or depth <= 0:
+        return jsonify({'ok': False, 'error': 'Coordinates or dimensions are outside the valid range.'}), 400
+    conn = db()
+    building = conn.execute('SELECT * FROM buildings WHERE id=?', (bid,)).fetchone()
+    unit = conn.execute('SELECT * FROM units WHERE building_id=? AND floor_no=? AND unit_code=?', (bid, floor_no, unit_code)).fetchone()
+    if not building or not unit:
+        conn.close()
+        return jsonify({'ok': False, 'error': 'Building floor record not found.'}), 404
+    polygon = rectangle_polygon(latitude, longitude, width, depth)
+    details = parse_json(unit['details_json'], {})
+    owner_name = (payload.get('owner_name') or unit['owner_name'] or '').strip()
+    legal_status = payload.get('legal_status', unit['legal_status'])
+    details.update({'floor_number': floor_no, 'latitude': latitude, 'longitude': longitude, 'width': width, 'depth': depth, 'owner_name': owner_name, 'legal_status': legal_status, 'updated_by': session['username']})
+    conn.execute('UPDATE units SET width=?, depth=?, owner_name=?, legal_status=?, polygon_json=?, details_json=? WHERE id=?',
+                 (width, depth, owner_name, legal_status, json.dumps(polygon), json.dumps(details), unit['id']))
+    conn.commit()
+    updated = conn.execute('SELECT * FROM units WHERE id=?', (unit['id'],)).fetchone()
+    conn.close()
+    return jsonify({'ok': True, 'unit': unit_json(updated, include_sensitive=True)})
+
 @app.route('/view/<int:bid>')
 def view3d(bid):
     conn=db(); row=conn.execute('SELECT * FROM buildings WHERE id=?',(bid,)).fetchone(); conn.close()

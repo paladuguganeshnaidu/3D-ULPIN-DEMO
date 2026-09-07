@@ -3,6 +3,7 @@
 <script src="https://cesium.com/downloads/cesiumjs/releases/1.145/Build/Cesium/Cesium.js"></script>
 <link href="https://cesium.com/downloads/cesiumjs/releases/1.145/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
 <link rel="stylesheet" href="{{ url_for('static', filename='city3d.css') }}">
+<style>.floor-editor{border-top:1px solid rgba(175,215,242,.18);margin-top:16px;padding-top:15px;max-height:calc(100vh - 260px);overflow-y:auto}.floor-editor label{display:grid;gap:5px;color:#8fa9c4;font-size:10px;text-transform:uppercase;letter-spacing:.08em;margin-top:9px}.floor-editor input,.floor-editor select{height:32px;padding:6px 8px;font-size:12px;background:#0b1d34;border-color:rgba(175,215,242,.2)}.city3d-save{width:100%;margin-top:13px;border:1px solid #71c9ff;background:#31547d;color:#fff;border-radius:9px;padding:9px;font-weight:800;cursor:pointer}.city3d-save:hover{background:#477fb5}.save-status{font-size:11px;color:#9edcff;line-height:1.4;min-height:15px}</style>
 {% endblock %}
 {% block content %}
 <div class="city3d-shell">
@@ -11,9 +12,9 @@
     <div class="city3d-controls"><label>Dataset <select id="dataset"><option>{{ buildings|length }} registered blocks</option></select></label><button id="mode3d" class="city3d-button active">3D</button><button id="modeTop" class="city3d-button">Top</button><a class="city3d-button" href="{{ url_for('index') }}">Map</a></div>
   </header>
   <div id="city3d-container"></div>
-  <aside id="city3d-panel" class="city3d-panel"><div class="city3d-panel-kicker">SELECTED BLOCK</div><h2 id="selected-name">Choose a building</h2><p id="selected-copy">Registered blocks are rendered from their stored latitude, longitude, footprint, floors, and height.</p><div id="selected-data" class="city3d-data"></div></aside>
+  <aside id="city3d-panel" class="city3d-panel"><div class="city3d-panel-kicker">SELECTED BLOCK</div><h2 id="selected-name">Choose a building</h2><p id="selected-copy">Registered blocks are rendered from their stored latitude, longitude, footprint, floors, and height.</p><div id="selected-data" class="city3d-data"></div><div id="floor-editor" class="floor-editor hidden"><label>Floor / flat<select id="floor-select"></select></label><label>Latitude<input id="record-latitude" type="number" step="any"></label><label>Longitude<input id="record-longitude" type="number" step="any"></label><label>Width (m)<input id="record-width" type="number" min="0.1" step="0.1"></label><label>Depth (m)<input id="record-depth" type="number" min="0.1" step="0.1"></label><label>Owner name<input id="record-owner"></label><label>Legal status<select id="record-legal"><option>REGISTERED</option><option>PENDING</option><option>DISPUTED</option></select></label><button id="save-floor" class="city3d-save">Save floor JSON</button><p id="save-status" class="save-status"></p></div></aside>
   <div class="city3d-legend"><div><i class="legend-volume"></i> Building volume</div><div><i class="legend-divider"></i> Floor divider</div><div><i class="legend-selected"></i> Selected</div></div>
   <div class="city3d-hint">Drag to rotate · Scroll to zoom · Click a block to assign floors &amp; units</div>
 </div>
 {% endblock %}
-{% block scripts %}<script>window.CITY_BUILDINGS={{ buildings|tojson }};window.CITY_CENTER={{ center|tojson }};</script><script src="{{ url_for('static', filename='city3d.js') }}"></script>{% endblock %}
+{% block scripts %}<script>window.CITY_BUILDINGS={{ buildings|tojson }};window.CITY_CENTER={{ center|tojson }};</script><script src="{{ url_for('static', filename='city3d.js') }}?v=ground-4"></script>{% endblock %}
