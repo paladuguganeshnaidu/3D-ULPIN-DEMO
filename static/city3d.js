@@ -2,8 +2,7 @@
   const buildings = window.CITY_BUILDINGS || [];
   const center = window.CITY_CENTER || { lat: 12.9166, lng: 77.6229 };
   Cesium.Ion.defaultAccessToken = '';
-  const viewer = new Cesium.Viewer('city3d-container', { animation: false, timeline: false, geocoder: false, homeButton: false, sceneModePicker: false, baseLayerPicker: false, navigationHelpButton: false, infoBox: false, selectionIndicator: false });
-  viewer.terrainProvider = new Cesium.EllipsoidTerrainProvider();
+  const viewer = new Cesium.Viewer('city3d-container', { animation: false, timeline: false, geocoder: false, homeButton: false, sceneModePicker: false, baseLayerPicker: false, navigationHelpButton: false, infoBox: false, selectionIndicator: false, terrainProvider: new Cesium.EllipsoidTerrainProvider() });
   viewer.imageryLayers.removeAll();
   viewer.imageryLayers.addImageryProvider(new Cesium.OpenStreetMapImageryProvider({ url: 'https://tile.openstreetmap.org/' }));
   viewer.scene.globe.depthTestAgainstTerrain = false;
@@ -59,9 +58,9 @@
     if (footprint.length < 3) return;
     const positions = footprintPositions(footprint);
     for (let floor = 1; floor <= building.floors; floor += 1) {
-      const base = (floor - 1) * building.floor_height;
-      const top = floor * building.floor_height - 0.08;
-      const entity = viewer.entities.add({ name: `${building.building_name} · Floor ${floor}`, position: Cesium.Cartesian3.fromDegrees(building.lng, building.lat, base + building.floor_height / 2), box: { dimensions: new Cesium.Cartesian3(building.footprint_w, building.footprint_d, Math.max(building.floor_height - .08, .2)), material: colorFor(building), outline: true, outlineColor: Cesium.Color.WHITE.withAlpha(.6), outlineWidth: 1 }, polygon: { hierarchy: positions, height: base, extrudedHeight: top, heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND, extrudedHeightReference: Cesium.HeightReference.RELATIVE_TO_GROUND, material: colorFor(building), outline: true, outlineColor: Cesium.Color.WHITE.withAlpha(.45), outlineWidth: 1 }, properties: { buildingId: building.id, floor } });
+      const base = (floor - 1) * Number(building.floor_height);
+      const top = floor * Number(building.floor_height) - 0.08;
+      const entity = viewer.entities.add({ name: `${building.building_name} · Floor ${floor}`, position: Cesium.Cartesian3.fromDegrees(building.lng, building.lat, base + building.floor_height / 2), box: { dimensions: new Cesium.Cartesian3(building.footprint_w, building.footprint_d, Math.max(building.floor_height - .08, .2)), heightReference: Cesium.HeightReference.NONE, material: colorFor(building), outline: true, outlineColor: Cesium.Color.WHITE.withAlpha(.6), outlineWidth: 1 }, polygon: { hierarchy: positions, height: base, extrudedHeight: top, heightReference: Cesium.HeightReference.NONE, extrudedHeightReference: Cesium.HeightReference.NONE, material: colorFor(building), outline: true, outlineColor: Cesium.Color.WHITE.withAlpha(.45), outlineWidth: 1 }, properties: { buildingId: building.id, floor } });
       entities.push({ entity, polygon: entity.polygon, box: entity.box, building, floor });
     }
   });
@@ -78,10 +77,10 @@
   const west = Math.min(...points.map(point => point[1])); const east = Math.max(...points.map(point => point[1])); const south = Math.min(...points.map(point => point[0])); const north = Math.max(...points.map(point => point[0]));
   const cityCenter = { lng: (west + east) / 2, lat: (south + north) / 2 };
   const spanMeters = Math.max((east - west) * 111320, (north - south) * 111320);
-  const cameraHeight = Math.max(spanMeters * 2.8, 260);
+  const cameraHeight = Math.max(spanMeters * 1.05, 110);
   const frame3d = () => viewer.camera.flyTo({ destination: Cesium.Cartesian3.fromDegrees(cityCenter.lng, cityCenter.lat, cameraHeight), orientation: { heading: 0, pitch: Cesium.Math.toRadians(-52), roll: 0 }, duration: .8 });
   const frameTop = () => viewer.camera.flyTo({ destination: Cesium.Cartesian3.fromDegrees(cityCenter.lng, cityCenter.lat, cameraHeight), orientation: { heading: 0, pitch: Cesium.Math.toRadians(-90), roll: 0 }, duration: .8 });
-  if (entities.length) viewer.zoomTo(viewer.entities, new Cesium.HeadingPitchRange(0, Cesium.Math.toRadians(-42), 260)); else viewer.camera.flyTo({ destination: Cesium.Cartesian3.fromDegrees(center.lng, center.lat, 1000) });
+  if (entities.length) frame3d(); else viewer.camera.flyTo({ destination: Cesium.Cartesian3.fromDegrees(center.lng, center.lat, 1000) });
   document.getElementById('mode3d').addEventListener('click', frame3d);
   document.getElementById('modeTop').addEventListener('click', frameTop);
 })();
