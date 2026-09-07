@@ -75,6 +75,14 @@ def init_db():
     else: sid = surveyor['id']
     # Demo buildings
     count = conn.execute('SELECT COUNT(*) AS c FROM buildings').fetchone()['c']
+    legacy_seed = conn.execute("""SELECT 1 FROM buildings
+                                 WHERE typeof(surveyor_id) != 'integer'
+                                    OR typeof(sanctioned_floors) != 'integer'
+                                 LIMIT 1""").fetchone()
+    if count and legacy_seed:
+        conn.execute('DELETE FROM units')
+        conn.execute('DELETE FROM buildings')
+        count = 0
     if count == 0:
         seeds = [
             ('Prestige Demo Tower A', '12912776480001', 12.91655, 77.62265, 22, 30, 892.0, 24.0, 3.0, 8, 1, 7, 'Mixed Use', 'Silk Board Road, Bengaluru'),
