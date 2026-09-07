@@ -293,8 +293,10 @@ def new_building():
                 for u in range(1,unit_count+1):
                     unit_width = max(2,width/unit_count-1); unit_depth = max(2,depth-2)
                     unit_polygon = split_polygon(footprint, unit_count)[u-1]
-                    unit_details = {'floor_number': floor, 'owner_name': 'Pending Registration', 'owner_status': 'PENDING', 'sensitive': True}
-                    conn.execute('INSERT INTO units(building_id,floor_no,unit_code,unit_type,width,depth,owner_name,polygon_json,details_json) VALUES(?,?,?,?,?,?,?,?,?)', (bid,floor,f'F{floor:02d}-U{u:02d}', 'Commercial' if (floor==1 and f['usage']=='Commercial') else 'Residential', unit_width,unit_depth, 'Pending Registration',json.dumps(unit_polygon),json.dumps(unit_details)))
+                    owner_name = f.get('owner_name', '').strip() or 'Pending Registration'
+                    legal_status = f.get('legal_status', 'REGISTERED')
+                    unit_details = {'floor_number': floor, 'owner_name': owner_name, 'owner_status': 'PENDING' if owner_name == 'Pending Registration' else 'DECLARED', 'sensitive': True}
+                    conn.execute('INSERT INTO units(building_id,floor_no,unit_code,unit_type,width,depth,owner_name,legal_status,polygon_json,details_json) VALUES(?,?,?,?,?,?,?,?,?,?)', (bid,floor,f'F{floor:02d}-U{u:02d}', 'Commercial' if (floor==1 and f['usage']=='Commercial') else 'Residential', unit_width,unit_depth, owner_name, legal_status,json.dumps(unit_polygon),json.dumps(unit_details)))
             if basement:
                 conn.execute('INSERT INTO units(building_id,floor_no,unit_code,unit_type,width,depth,owner_name,polygon_json,details_json) VALUES(?,?,?,?,?,?,?,?,?)', (bid,0,'B01-U01','Parking',max(2,width-2),max(2,depth-2),'Common Parking',json.dumps(footprint),json.dumps({'floor_number': 0, 'owner_name': 'Common Parking', 'owner_status': 'COMMON'})))
             conn.commit(); conn.close(); flash('Building registered and volumetric units generated.', 'success'); return redirect(url_for('dashboard'))
