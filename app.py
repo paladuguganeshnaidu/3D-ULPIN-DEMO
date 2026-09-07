@@ -46,6 +46,8 @@ CREATE TABLE IF NOT EXISTS buildings (
  usage TEXT NOT NULL,
  address TEXT NOT NULL,
  status TEXT NOT NULL DEFAULT 'REGISTERED',
+ footprint_json TEXT,
+ details_json TEXT,
  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
  FOREIGN KEY(surveyor_id) REFERENCES users(id)
 );
@@ -59,6 +61,8 @@ CREATE TABLE IF NOT EXISTS units (
  depth REAL NOT NULL,
  owner_name TEXT,
  legal_status TEXT NOT NULL DEFAULT 'REGISTERED',
+ polygon_json TEXT,
+ details_json TEXT,
  FOREIGN KEY(building_id) REFERENCES buildings(id)
 );
 '''
@@ -67,6 +71,54 @@ def db():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
+
+def ensure_json_columns(conn):
+    for table, columns in {
+        'buildings': ('footprint_json', 'details_json'),
+        'units': ('polygon_json', 'details_json'),
+    }.items():
+        existing = {row['name'] for row in conn.execute(f'PRAGMA table_info({table})')}
+        for column in columns:
+            if column not in existing:
+                conn.execute(f'ALTER TABLE {table} ADD COLUMN {column} TEXT')
+
+def rectangle_polygon(lat, lng, width, depth):
+    """Return a small geographic rectangle in Leaflet [lat, lng] order."""
+    lat_delta = float(depth) / 111320
+    lng_delta = float(width) / (111320 * max(math.cos(math.radians(lat)), 0.01))
+    return [[lat-lat_delta/2, lng-lng_delta/2], [lat-lat_delta/2, lng+lng_delta/2],
+            [lat+lat_delta/2, lng+lng_delta/2], [lat+lat_delta/2, lng-lng_delta/2]]
+
+def split_polygon(polygon, count):
+    """Split the rectangle into vertical flat polygons for the demo map."""
+    west = min(point[1] for point in polygon); east = max(point[1] for point in polygon)
+    south = min(point[0] for point in polygon); north = max(point[0] for point in polygon)
+    step = (east - west) / max(count, 1)
+    return [[[south, west + step * index], [south, west + step * (index + 1)],
+             [north, west + step * (index + 1)], [north, west + step * index]]
+            for index in range(count)]
+
+def parse_json(value, fallback=None):
+    try:
+        return json.loads(value) if value else fallback
+    except (TypeError, ValueError):
+        return fallback
+
+def building_json(row):
+    record = dict(row)
+    record['footprint'] = parse_json(record.get('footprint_json')) or rectangle_polygon(
+        record['lat'], record['lng'], record['footprint_w'], record['footprint_d'])
+    record['details'] = parse_json(record.get('details_json'), {})
+    return record
+
+def unit_json(row, include_sensitive=False):
+    record = dict(row)
+    record['polygon'] = parse_json(record.get('polygon_json'))
+    record['details'] = parse_json(record.get('details_json'), {})
+    if not include_sensitive:
+        record.pop('owner_name', None)
+        record['details'].pop('owner_name', None)
+    return record
 
 def extract_coordinates(value):
     """Resolve a Google Maps URL or coordinate pair to latitude/longitude."""
@@ -111,6 +163,7 @@ def resolve_maps_url(value):
 
 def init_db():
     conn = db(); conn.executescript(SCHEMA)
+    ensure_json_columns(conn)
     # Seed admin and surveyor
     admin = conn.execute('SELECT id FROM users WHERE username=?', ('admin',)).fetchone()
     if not admin:
@@ -150,6 +203,16 @@ def init_db():
             if s[10]:
                 conn.execute('''INSERT INTO units(building_id,floor_no,unit_code,unit_type,width,depth,owner_name)
                                 VALUES(?,?,?,?,?,?,?)''', (bid, 0, 'B01-U01', 'Parking', s[5]-2, s[6]-2, 'Common Parking'))
+    for row in conn.execute('SELECT * FROM buildings WHERE footprint_json IS NULL').fetchall():
+        footprint = rectangle_polygon(row['lat'], row['lng'], row['footprint_w'], row['footprint_d'])
+        conn.execute('UPDATE buildings SET footprint_json=?, details_json=? WHERE id=?',
+                     (json.dumps(footprint), json.dumps({'source': 'demo-seed'}), row['id']))
+    for row in conn.execute('SELECT u.*, b.lat, b.lng, b.footprint_w, b.footprint_d, b.floors FROM units u JOIN buildings b ON b.id=u.building_id WHERE u.polygon_json IS NULL').fetchall():
+        footprint = rectangle_polygon(row['lat'], row['lng'], row['footprint_w'], row['footprint_d'])
+        polygons = split_polygon(footprint, 2)
+        polygon = polygons[(row['id'] - 1) % len(polygons)]
+        conn.execute('UPDATE units SET polygon_json=?, details_json=? WHERE id=?',
+                     (json.dumps(polygon), json.dumps({'source': 'demo-seed', 'floor': row['floor_no'], 'owner_name': row['owner_name']}), row['id']))
     conn.commit(); conn.close()
 
 init_db()
@@ -173,7 +236,7 @@ def inject_globals():
 
 @app.route('/')
 def index():
-    conn = db(); buildings = [dict(row) for row in conn.execute('SELECT * FROM buildings ORDER BY id').fetchall()]; conn.close()
+    conn = db(); buildings = [building_json(row) for row in conn.execute('SELECT * FROM buildings ORDER BY id').fetchall()]; conn.close()
     return render_template('index.html', buildings=buildings, center=DEMO_CENTER)
 
 @app.route('/login', methods=['GET','POST'])
@@ -220,15 +283,20 @@ def new_building():
             lat, lng = resolve_maps_url(f.get('maps_url')) if f.get('maps_url') else (float(f['lat']), float(f['lng']))
             floors=int(f['floors']); floor_h=float(f['floor_height']); basement=int(f.get('basement','0')); width=float(f['footprint_w']); depth=float(f['footprint_d'])
             height=floors*floor_h
-            conn=db(); conn.execute('''INSERT INTO buildings(building_name,ulpin,surveyor_id,lat,lng,footprint_w,footprint_d,ground_elev,height,floor_height,floors,basement,sanctioned_floors,usage,address)
-                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''', (f['building_name'],f['ulpin'],session['user_id'],lat,lng,width,depth,float(f['ground_elev']),height,floor_h,floors,basement,int(f['sanctioned_floors']),f['usage'],f['address']))
+            footprint = rectangle_polygon(lat, lng, width, depth)
+            building_details = {'source': 'surveyor', 'maps_url': f.get('maps_url', ''), 'created_by': session['username']}
+            conn=db(); conn.execute('''INSERT INTO buildings(building_name,ulpin,surveyor_id,lat,lng,footprint_w,footprint_d,ground_elev,height,floor_height,floors,basement,sanctioned_floors,usage,address,footprint_json,details_json)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''', (f['building_name'],f['ulpin'],session['user_id'],lat,lng,width,depth,float(f['ground_elev']),height,floor_h,floors,basement,int(f['sanctioned_floors']),f['usage'],f['address'],json.dumps(footprint),json.dumps(building_details)))
             bid=conn.execute('SELECT last_insert_rowid()').fetchone()[0]
             unit_count=max(1,int(f.get('units_per_floor','2')))
             for floor in range(1,floors+1):
                 for u in range(1,unit_count+1):
-                    conn.execute('INSERT INTO units(building_id,floor_no,unit_code,unit_type,width,depth,owner_name) VALUES(?,?,?,?,?,?,?)', (bid,floor,f'F{floor:02d}-U{u:02d}', 'Commercial' if (floor==1 and f['usage']=='Commercial') else 'Residential', max(2,width/unit_count-1), max(2,depth-2), 'Pending Registration'))
+                    unit_width = max(2,width/unit_count-1); unit_depth = max(2,depth-2)
+                    unit_polygon = split_polygon(footprint, unit_count)[u-1]
+                    unit_details = {'floor_number': floor, 'owner_name': 'Pending Registration', 'owner_status': 'PENDING', 'sensitive': True}
+                    conn.execute('INSERT INTO units(building_id,floor_no,unit_code,unit_type,width,depth,owner_name,polygon_json,details_json) VALUES(?,?,?,?,?,?,?,?,?)', (bid,floor,f'F{floor:02d}-U{u:02d}', 'Commercial' if (floor==1 and f['usage']=='Commercial') else 'Residential', unit_width,unit_depth, 'Pending Registration',json.dumps(unit_polygon),json.dumps(unit_details)))
             if basement:
-                conn.execute('INSERT INTO units(building_id,floor_no,unit_code,unit_type,width,depth,owner_name) VALUES(?,?,?,?,?,?,?)', (bid,0,'B01-U01','Parking',max(2,width-2),max(2,depth-2),'Common Parking'))
+                conn.execute('INSERT INTO units(building_id,floor_no,unit_code,unit_type,width,depth,owner_name,polygon_json,details_json) VALUES(?,?,?,?,?,?,?,?,?)', (bid,0,'B01-U01','Parking',max(2,width-2),max(2,depth-2),'Common Parking',json.dumps(footprint),json.dumps({'floor_number': 0, 'owner_name': 'Common Parking', 'owner_status': 'COMMON'})))
             conn.commit(); conn.close(); flash('Building registered and volumetric units generated.', 'success'); return redirect(url_for('dashboard'))
         except sqlite3.IntegrityError:
             flash('ULPIN must be unique.', 'error')
@@ -246,13 +314,24 @@ def maps_resolve():
 
 @app.route('/api/buildings')
 def api_buildings():
-    conn=db(); rows=conn.execute('SELECT * FROM buildings ORDER BY id').fetchall(); conn.close(); return jsonify([dict(r) for r in rows])
+    conn=db(); rows=conn.execute('SELECT * FROM buildings ORDER BY id').fetchall(); conn.close(); return jsonify([building_json(row) for row in rows])
 
 @app.route('/api/buildings/<int:bid>')
 def api_building(bid):
     conn=db(); b=conn.execute('SELECT b.*, u.username AS surveyor FROM buildings b LEFT JOIN users u ON b.surveyor_id=u.id WHERE b.id=?',(bid,)).fetchone(); units=conn.execute('SELECT * FROM units WHERE building_id=? ORDER BY floor_no,id',(bid,)).fetchall(); conn.close()
     if not b: return jsonify({'error':'not found'}),404
-    return jsonify({'building':dict(b),'units':[dict(u) for u in units]})
+    unit_records = [unit_json(unit) for unit in units]
+    floors = {}
+    for unit in unit_records:
+        floors.setdefault(str(unit['floor_no']), []).append(unit)
+    return jsonify({'building':building_json(b),'units':unit_records,'floors':floors})
+
+@app.get('/api/buildings/<int:bid>/record')
+@login_required()
+def private_building_record(bid):
+    conn=db(); b=conn.execute('SELECT * FROM buildings WHERE id=?',(bid,)).fetchone(); units=conn.execute('SELECT * FROM units WHERE building_id=? ORDER BY floor_no,id',(bid,)).fetchall(); conn.close()
+    if not b: return jsonify({'error':'not found'}),404
+    return jsonify({'building': building_json(b), 'units': [unit_json(unit, include_sensitive=True) for unit in units], 'sensitive': True})
 
 @app.route('/view/<int:bid>')
 def view3d(bid):
