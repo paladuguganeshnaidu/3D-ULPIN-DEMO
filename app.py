@@ -10,7 +10,7 @@ DB_PATH = os.path.join(BASE_DIR, 'ulpin_demo.db')
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'dev-secret-change-me')
 OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY', '')
-OPENROUTER_MODEL = os.getenv('OPENROUTER_MODEL', 'openai/gpt-oss-20b:free')
+OPENROUTER_MODEL = os.getenv('OPENROUTER_MODEL', 'openai/gpt-oss-20b')
 
 COORDINATE_PATTERNS = (
     re.compile(r'@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)'),

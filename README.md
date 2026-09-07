@@ -40,7 +40,7 @@ Render settings:
 A `render.yaml` is included for Blueprint deployment.
 
 ## AI configuration
-Set `OPENROUTER_API_KEY` in Render before using the AI analysis button. The selected model defaults to `openai/gpt-oss-20b:free` and can be changed with `OPENROUTER_MODEL`. Test the key and model locally with:
+Set `OPENROUTER_API_KEY` in Render before using the AI analysis button. The selected model defaults to `openai/gpt-oss-20b` and can be changed with `OPENROUTER_MODEL`. Test the key and model locally with:
 ```bash
 python test_api.py
 ```

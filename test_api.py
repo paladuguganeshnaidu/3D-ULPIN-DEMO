@@ -1,6 +1,7 @@
 """Smoke-test the configured OpenRouter API and model.
 
 Usage:
+    $env:OPENROUTER_API_KEY = 'your-key'
     python test_api.py
 
 Set OPENROUTER_API_KEY and optionally OPENROUTER_MODEL before running.
@@ -11,7 +12,7 @@ import sys
 import requests
 
 API_KEY = os.getenv('OPENROUTER_API_KEY', '').strip()
-MODEL = os.getenv('OPENROUTER_MODEL', 'openai/gpt-oss-20b:free').strip()
+MODEL = os.getenv('OPENROUTER_MODEL', 'openai/gpt-oss-20b').strip()
 ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions'
 
 
