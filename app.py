@@ -83,7 +83,7 @@ def init_db():
         ]
         for s in seeds:
             conn.execute('''INSERT INTO buildings(building_name,ulpin,surveyor_id,lat,lng,footprint_w,footprint_d,ground_elev,height,floor_height,floors,basement,sanctioned_floors,usage,address)
-                            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''', (*s, sid))
+                            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''', (*s[:2], sid, *s[2:]))
             bid = conn.execute('SELECT last_insert_rowid()').fetchone()[0]
             # Create 2 units per floor + common corridor conceptually
             for f in range(1, s[9] + 1):
@@ -91,7 +91,7 @@ def init_db():
                     conn.execute('''INSERT INTO units(building_id,floor_no,unit_code,unit_type,width,depth,owner_name)
                                     VALUES(?,?,?,?,?,?,?)''',
                                  (bid, f, f'F{f:02d}-U{u:02d}', 'Residential' if s[12]=='Residential' else ('Commercial' if f==1 else 'Residential'), s[5]/2-1, s[6]-2, f'Demo Owner {f}{u}'))
-            if s[11]:
+            if s[10]:
                 conn.execute('''INSERT INTO units(building_id,floor_no,unit_code,unit_type,width,depth,owner_name)
                                 VALUES(?,?,?,?,?,?,?)''', (bid, 0, 'B01-U01', 'Parking', s[5]-2, s[6]-2, 'Common Parking'))
     conn.commit(); conn.close()
@@ -117,7 +117,7 @@ def inject_globals():
 
 @app.route('/')
 def index():
-    conn = db(); buildings = conn.execute('SELECT * FROM buildings ORDER BY id').fetchall(); conn.close()
+    conn = db(); buildings = [dict(row) for row in conn.execute('SELECT * FROM buildings ORDER BY id').fetchall()]; conn.close()
     return render_template('index.html', buildings=buildings, center=DEMO_CENTER)
 
 @app.route('/login', methods=['GET','POST'])
@@ -191,7 +191,8 @@ def api_building(bid):
 
 @app.route('/view/<int:bid>')
 def view3d(bid):
-    conn=db(); b=conn.execute('SELECT * FROM buildings WHERE id=?',(bid,)).fetchone(); conn.close()
+    conn=db(); row=conn.execute('SELECT * FROM buildings WHERE id=?',(bid,)).fetchone(); conn.close()
+    b = dict(row) if row else None
     if not b: return 'Not found',404
     return render_template('viewer3d.html', building=b)
 
