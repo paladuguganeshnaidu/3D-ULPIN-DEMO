@@ -39,6 +39,12 @@ Render settings:
 
 A `render.yaml` is included for Blueprint deployment.
 
+## AI configuration
+Set `OPENROUTER_API_KEY` in Render before using the AI analysis button. The selected model defaults to `openai/gpt-oss-20b:free` and can be changed with `OPENROUTER_MODEL`. Test the key and model locally with:
+```bash
+python test_api.py
+```
+
 ## Important scope note
 This is a **PoC**, not an official cadastral or land-title system. Building attributes, ownership names, floor plans and ULPIN examples are synthetic. The base map is OpenStreetMap. The production version should replace synthetic geometry/attributes with authoritative parcel, survey, LiDAR/DSM, approved-plan and registry data, and move from SQLite to PostgreSQL/PostGIS.
 # 3D-ULPIN-DEMO

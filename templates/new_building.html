@@ -1,1 +1,46 @@
-{% extends 'base.html' %}{% block content %}<section class="dashboard-head"><div><div class="eyebrow">SURVEYOR WORKFLOW</div><h1>Register a building</h1><p>Create the building shell and automatically generate demo vertical units.</p></div></section><section class="panel"><form class="form-grid" method="post"><label>Building name<input name="building_name" placeholder="Example Tower A" required></label><label>Base ULPIN<input name="ulpin" value="1291277648{{ '%04d'|format(range(1,9999)|random) }}" required></label><label>Latitude<input name="lat" value="12.9166" step="any" required></label><label>Longitude<input name="lng" value="77.6229" step="any" required></label><label>Ground elevation (m)<input name="ground_elev" value="892" step="0.1" required></label><label>Footprint width (m)<input name="footprint_w" value="20" step="0.1" required></label><label>Footprint depth (m)<input name="footprint_d" value="30" step="0.1" required></label><label>Number of floors<input name="floors" type="number" min="1" value="5" required></label><label>Average floor height (m)<input name="floor_height" type="number" step="0.1" value="3" required></label><label>Sanctioned floors<input name="sanctioned_floors" type="number" min="1" value="5" required></label><label>Basement<input name="basement" type="number" min="0" max="3" value="1" required></label><label>Units per floor<input name="units_per_floor" type="number" min="1" max="8" value="2" required></label><label>Usage<select name="usage"><option>Residential</option><option>Commercial</option><option>Mixed Use</option></select></label><label class="span-2">Address<input name="address" value="Silk Board / HSR Layout, Bengaluru" required></label><div class="span-2 form-actions"><button class="btn">Register & generate units</button><a href="{{ url_for('dashboard') }}">Cancel</a></div></form></section><section class="note">This PoC computes an approximate height as <b>floors × average floor height</b>. In a production cadastral system, verified LiDAR/DSM/GNSS/CORS and approved plans would be used instead.</section>{% endblock %}
+{% extends 'base.html' %}
+{% block content %}
+<section class="dashboard-head"><div><div class="eyebrow">SURVEYOR WORKFLOW</div><h1>Register a building</h1><p>Create the building shell and automatically generate demo vertical units.</p></div></section>
+<section class="panel"><form class="form-grid" method="post">
+<label>Building name<input name="building_name" placeholder="Example Tower A" required></label>
+<label>Base ULPIN<input name="ulpin" value="1291277648{{ '%04d'|format(range(1,9999)|random) }}" required></label>
+<label class="span-2">Google Maps shared URL<input id="maps-url" name="maps_url" type="url" placeholder="https://maps.app.goo.gl/..." data-resolve-url></label>
+<label>Latitude<input id="latitude" name="lat" value="12.9166" step="any" required></label>
+<label>Longitude<input id="longitude" name="lng" value="77.6229" step="any" required></label>
+<label>Ground elevation (m)<input name="ground_elev" value="892" step="0.1" required></label>
+<label>Footprint width (m)<input name="footprint_w" value="20" step="0.1" required></label>
+<label>Footprint depth (m)<input name="footprint_d" value="30" step="0.1" required></label>
+<label>Number of floors<input name="floors" type="number" min="1" value="5" required></label>
+<label>Average floor height (m)<input name="floor_height" type="number" step="0.1" value="3" required></label>
+<label>Sanctioned floors<input name="sanctioned_floors" type="number" min="1" value="5" required></label>
+<label>Basement<input name="basement" type="number" min="0" max="3" value="1" required></label>
+<label>Units per floor<input name="units_per_floor" type="number" min="1" max="8" value="2" required></label>
+<label>Usage<select name="usage"><option>Residential</option><option>Commercial</option><option>Mixed Use</option></select></label>
+<label class="span-2">Address<input name="address" value="Silk Board / HSR Layout, Bengaluru" required></label>
+<div class="span-2 form-actions"><button class="btn">Register &amp; generate units</button><a href="{{ url_for('dashboard') }}">Cancel</a></div>
+</form></section>
+<section class="note">Paste a Google Maps shared link to fill latitude and longitude automatically. This PoC computes an approximate height as <b>floors × average floor height</b>.</section>
+<script>
+const mapsUrl = document.querySelector('[data-resolve-url]');
+const latInput = document.getElementById('latitude');
+const lngInput = document.getElementById('longitude');
+let resolveTimer;
+mapsUrl.addEventListener('input', () => {
+  clearTimeout(resolveTimer);
+  resolveTimer = setTimeout(async () => {
+    if (!mapsUrl.value) { mapsUrl.setCustomValidity(''); return; }
+    mapsUrl.setCustomValidity('Resolving Maps link...');
+    try {
+      const response = await fetch('/api/maps/resolve?url=' + encodeURIComponent(mapsUrl.value));
+      const result = await response.json();
+      if (!result.ok) throw new Error(result.error);
+      latInput.value = result.lat;
+      lngInput.value = result.lng;
+      mapsUrl.setCustomValidity('');
+    } catch (error) {
+      mapsUrl.setCustomValidity(error.message);
+    }
+  }, 350);
+});
+</script>
+{% endblock %}

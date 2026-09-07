@@ -1,4 +1,5 @@
-import os, json, math, sqlite3
+import os, json, math, re, sqlite3
+from urllib.parse import parse_qs, urlparse
 from functools import wraps
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify, flash
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -10,6 +11,12 @@ app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'dev-secret-change-me')
 OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY', '')
 OPENROUTER_MODEL = os.getenv('OPENROUTER_MODEL', 'openai/gpt-oss-20b:free')
+
+COORDINATE_PATTERNS = (
+    re.compile(r'@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)'),
+    re.compile(r'!3d(-?\d+(?:\.\d+)?)!4d(-?\d+(?:\.\d+)?)'),
+    re.compile(r'/search/(-?\d+(?:\.\d+)?),(?:\+|\s*)(-?\d+(?:\.\d+)?)'),
+)
 
 DEMO_CENTER = {'lat': 12.9166, 'lng': 77.6229, 'name': 'Silk Board / HSR Layout, Bengaluru'}
 
@@ -60,6 +67,47 @@ def db():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
+
+def extract_coordinates(value):
+    """Resolve a Google Maps URL or coordinate pair to latitude/longitude."""
+    value = (value or '').strip()
+    if not value:
+        raise ValueError('Paste a Google Maps shared URL or enter coordinates.')
+    for pattern in COORDINATE_PATTERNS:
+        match = pattern.search(value)
+        if match:
+            lat, lng = float(match.group(1)), float(match.group(2))
+            break
+    else:
+        parsed = urlparse(value)
+        query_values = parse_qs(parsed.query)
+        candidates = query_values.get('q', []) + query_values.get('query', []) + query_values.get('destination', [])
+        match = re.search(r'(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)', ' '.join(candidates))
+        if not match:
+            raise ValueError('No latitude and longitude were found in that Maps link.')
+        lat, lng = float(match.group(1)), float(match.group(2))
+    if not -90 <= lat <= 90 or not -180 <= lng <= 180:
+        raise ValueError('The Maps link contains coordinates outside the valid range.')
+    return lat, lng
+
+def resolve_maps_url(value):
+    """Follow short Google Maps links, then extract coordinates from the final URL."""
+    value = (value or '').strip()
+    try:
+        return extract_coordinates(value)
+    except ValueError:
+        if not value.startswith(('http://', 'https://')):
+            raise
+        host = (urlparse(value).hostname or '').lower()
+        if host not in {'maps.app.goo.gl', 'maps.google.com', 'www.google.com', 'google.com'}:
+            raise ValueError('Use a Google Maps shared URL.')
+        try:
+            response = requests.get(value, allow_redirects=True, timeout=10,
+                                    headers={'User-Agent': '3D-ULPIN-Demo/1.0'})
+            response.raise_for_status()
+        except requests.RequestException as error:
+            raise ValueError(f'Could not open the Maps link: {error}') from error
+        return extract_coordinates(response.url)
 
 def init_db():
     conn = db(); conn.executescript(SCHEMA)
@@ -169,10 +217,11 @@ def new_building():
     if request.method == 'POST':
         f=request.form
         try:
+            lat, lng = resolve_maps_url(f.get('maps_url')) if f.get('maps_url') else (float(f['lat']), float(f['lng']))
             floors=int(f['floors']); floor_h=float(f['floor_height']); basement=int(f.get('basement','0')); width=float(f['footprint_w']); depth=float(f['footprint_d'])
             height=floors*floor_h
             conn=db(); conn.execute('''INSERT INTO buildings(building_name,ulpin,surveyor_id,lat,lng,footprint_w,footprint_d,ground_elev,height,floor_height,floors,basement,sanctioned_floors,usage,address)
-                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''', (f['building_name'],f['ulpin'],session['user_id'],float(f['lat']),float(f['lng']),width,depth,float(f['ground_elev']),height,floor_h,floors,basement,int(f['sanctioned_floors']),f['usage'],f['address']))
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''', (f['building_name'],f['ulpin'],session['user_id'],lat,lng,width,depth,float(f['ground_elev']),height,floor_h,floors,basement,int(f['sanctioned_floors']),f['usage'],f['address']))
             bid=conn.execute('SELECT last_insert_rowid()').fetchone()[0]
             unit_count=max(1,int(f.get('units_per_floor','2')))
             for floor in range(1,floors+1):
@@ -186,6 +235,14 @@ def new_building():
         except Exception as e:
             flash(f'Invalid building data: {e}', 'error')
     return render_template('new_building.html', center=DEMO_CENTER)
+
+@app.get('/api/maps/resolve')
+def maps_resolve():
+    try:
+        lat, lng = resolve_maps_url(request.args.get('url'))
+        return jsonify({'ok': True, 'lat': lat, 'lng': lng})
+    except ValueError as error:
+        return jsonify({'ok': False, 'error': str(error)}), 400
 
 @app.route('/api/buildings')
 def api_buildings():
@@ -205,7 +262,6 @@ def view3d(bid):
     return render_template('viewer3d.html', building=b)
 
 @app.post('/api/ai/analyze')
-@login_required()
 def ai_analyze():
     if not OPENROUTER_API_KEY:
         return jsonify({'ok':False,'error':'OPENROUTER_API_KEY is not configured on the server.'}), 400
@@ -215,9 +271,16 @@ def ai_analyze():
     building={'name':b['building_name'],'ulpin':b['ulpin'],'floors':b['floors'],'sanctioned_floors':b['sanctioned_floors'],'height_m':b['height'],'floor_height_m':b['floor_height'],'usage':b['usage'],'units':[dict(x) for x in units]}
     prompt='''You are an AI assistant inside a 3D cadastral PoC. Analyze the supplied demo building record. Do NOT claim this is an official government record. Return concise JSON with keys: summary, risks, validation, next_steps. Mention if observed floors exceed sanctioned floors. Treat missing ownership/legal details as demo placeholders.'''
     body={'model':OPENROUTER_MODEL,'messages':[{'role':'system','content':prompt},{'role':'user','content':json.dumps(building)}], 'temperature':0.2}
-    r=requests.post('https://openrouter.ai/api/v1/chat/completions',headers={'Authorization':f'Bearer {OPENROUTER_API_KEY}','Content-Type':'application/json','HTTP-Referer':os.getenv('APP_BASE_URL',''),'X-Title':'3D ULPIN Demo'},json=body,timeout=40)
-    if r.status_code>=400: return jsonify({'ok':False,'error':r.text[:600]}),502
-    content=r.json()['choices'][0]['message']['content']; return jsonify({'ok':True,'content':content})
+    try:
+        r=requests.post('https://openrouter.ai/api/v1/chat/completions',headers={'Authorization':f'Bearer {OPENROUTER_API_KEY}','Content-Type':'application/json','HTTP-Referer':os.getenv('APP_BASE_URL',''),'X-Title':'3D ULPIN Demo'},json=body,timeout=40)
+        if r.status_code >= 400:
+            return jsonify({'ok':False,'error':f'OpenRouter returned {r.status_code}: {r.text[:600]}'}),502
+        content=r.json()['choices'][0]['message']['content']
+    except requests.RequestException as error:
+        return jsonify({'ok':False,'error':f'Could not reach OpenRouter: {error}'}),502
+    except (KeyError, IndexError, TypeError, ValueError):
+        return jsonify({'ok':False,'error':'OpenRouter returned an unexpected response.'}),502
+    return jsonify({'ok':True,'content':content,'model':OPENROUTER_MODEL})
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0',port=int(os.getenv('PORT','5000')),debug=True)

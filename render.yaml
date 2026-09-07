@@ -14,3 +14,5 @@ services:
         sync: false
       - key: OPENROUTER_MODEL
         value: openai/gpt-oss-20b:free
+      - key: APP_BASE_URL
+        value: https://threed-ulpin-demo.onrender.com
